@@ -89,6 +89,11 @@ def main():
         return
 
     for root, _, files in os.walk(target_directory):
+        if "ignore" in files:
+            print(f"Skipping folder (ignored): {root}")
+            # Don't descend into subfolders of this ignored directory
+            dirs.clear()
+            continue
         for file in files:
             if file.endswith(".json") and file not in {"prefix.txt", "suffix.txt"}:
                 json_path = os.path.join(root, file)
