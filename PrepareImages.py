@@ -3,6 +3,7 @@ import json
 import base64
 import requests
 from PIL import Image
+from PIL import ImageFilter
 from io import BytesIO
 import numpy as np
 from sklearn.neighbors import KDTree
@@ -11,19 +12,23 @@ from sklearn.cluster import KMeans
 # ===== CONFIGURATION =====
 API_URL = "http://127.0.0.1:7860/sdapi/v1/img2img"
 SOURCE_FOLDER = "ImgIdeas"
-RECOLORED_FOLDER = "Recolored"
+RECOLORED_FOLDER = "RecoloredTemp"
 OUTPUT_FOLDER = "Images"
 
-USE_DIRECT_PALETTE_MAPPING = True  # Set to True to skip KMeans and map every pixel directly to palette
+USE_DIRECT_PALETTE_MAPPING = False  # Set to True to skip KMeans and map every pixel directly to palette (has slight dithering effect)
+BLUR_RECOLORED_IMAGE = True  # Set to True to apply blur before img2img
+BLUR_RADIUS = 1.3            # Adjust for more or less smoothing
+
 
 FINAL_WIDTH = 1024
 FINAL_HEIGHT = 1024
-FINAL_STEPS = 28
+FINAL_STEPS = 32
 FINAL_CFG_SCALE = 7.0
-FINAL_DENOISING = 0.65
+FINAL_DENOISING = 0.6
 
 COLOR_SCHEMES = {
-    "CrimsonTwilight": ['#C56D70', '#241B28', '#566B7B', '#4DB5BF', '#76353F', '#324557', '#EFDBC2', '#4B92A5', '#BFB5BF', '#5C6464']
+    "CrimsonTwilight": ['#C56D70', '#241B28', '#566B7B', '#4DB5BF', '#76353F', '#324557', '#EFDBC2', '#4B92A5', '#BFB5BF', '#5C6464'],
+    "EnchantedGrove":  ['#3B5A3A', '#CFD8B7', '#97BC90', '#192111', '#879F6D', '#659B7E', '#69915A', '#B7BF4D', '#89AAA5', '#B4741C']
 }
 
 NUM_REDUCED_COLORS = 10
@@ -61,6 +66,10 @@ def recolor_image(input_path, output_path, palette_rgb):
     output = np.dstack((recolored_rgb, alpha)).astype(np.uint8)
     Image.fromarray(output, mode="RGBA").save(output_path)
 
+def blur_image_in_place(image_path, radius=1.2):
+    img = Image.open(image_path).convert("RGBA")
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=radius))
+    blurred.save(image_path)
 
 def image_to_base64(image_path):
     with open(image_path, "rb") as img_file:
@@ -73,14 +82,37 @@ def find_json_for_image(image_path):
     return json_path if os.path.exists(json_path) else None
 
 
+def find_prompt_part(start_dir, filename):
+    """Look upward for a txt file (prefix.txt or suffix.txt). Return its contents if found."""
+    current_dir = start_dir
+    while True:
+        path = os.path.join(current_dir, filename)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        if current_dir == SOURCE_FOLDER or os.path.dirname(current_dir) == current_dir:
+            break
+        current_dir = os.path.dirname(current_dir)
+    return ""
+
+def clean_prompt(*parts):
+    joined = ", ".join(part.strip().strip(',') for part in parts if part.strip())
+    return ", ".join([p.strip() for p in joined.split(",") if p.strip()])
+
 def build_prompt(json_path):
+    base_dir = os.path.dirname(json_path)
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Use override if present
     if "prompt-img2img" in data:
         return data["prompt-img2img"]
-    return data.get("prompt", "")
+
+    prefix = find_prompt_part(base_dir, "prefix.txt")
+    suffix = find_prompt_part(base_dir, "suffix.txt")
+    core = data.get("prompt", "")
+
+    return clean_prompt(prefix, core, suffix)
+
 
 
 def generate_img2img(image_b64, prompt, params):
@@ -143,6 +175,10 @@ def process_images():
                     os.makedirs(os.path.dirname(recolored_path), exist_ok=True)
 
                     recolor_image(image_path, recolored_path, palette_rgb)
+                    
+                    if BLUR_RECOLORED_IMAGE:
+                        blur_image_in_place(recolored_path, BLUR_RADIUS)
+                        
                     image_b64 = image_to_base64(recolored_path)
                     prompt = build_prompt(json_path)
 
