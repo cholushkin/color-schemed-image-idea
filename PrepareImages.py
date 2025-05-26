@@ -14,11 +14,18 @@ SOURCE_FOLDER = "ImgIdeas"
 RECOLORED_FOLDER = "Recolored"
 OUTPUT_FOLDER = "Images"
 
+FINAL_WIDTH = 1024
+FINAL_HEIGHT = 1024
+FINAL_STEPS = 28
+FINAL_CFG_SCALE = 7.0
+FINAL_DENOISING = 0.65
+
 COLOR_SCHEMES = {
-    "Nature": ['#3B5A3A', '#CFD8B7', '#97BC90', '#192111', '#879F6D', '#659B7E', '#69915A', '#B7BF4D', '#89AAA5', '#B4741C'],
+    "CrimsonTwilight": ['#C56D70', '#241B28', '#566B7B', '#4DB5BF', '#76353F', '#324557', '#EFDBC2', '#4B92A5', '#BFB5BF', '#5C6464'],
     "Sunset": ['#FF4500', '#FFA500', '#FFD700', '#FF6347', '#800000', '#DC143C', '#FF69B4', '#FFB6C1', '#FFE4B5', '#FFDAB9'],
     "Ocean": ['#000080', '#0000CD', '#4169E1', '#00BFFF', '#87CEFA', '#4682B4', '#5F9EA0', '#00CED1', '#20B2AA', '#40E0D0']
 }
+
 
 NUM_REDUCED_COLORS = 10  # KMeans cluster count
 # ==========================
@@ -71,18 +78,19 @@ def build_prompt(json_path, scheme_name, colors):
 
 
 def generate_img2img(image_b64, prompt, params):
+    # Reuse some parameters from idea json
     payload = {
         "init_images": [image_b64],
         "prompt": prompt,
         "negative_prompt": params.get("negative_prompt", ""),
-        "width": params.get("width", 1024),
-        "height": params.get("height", 1024),
-        "steps": params.get("steps", 28),
+        "width": FINAL_WIDTH,
+        "height": FINAL_HEIGHT,
+        "steps": FINAL_STEPS, 
         "seed": params.get("seed", -1),
         "sampler_name": params.get("sampler_name", "Euler a"),
         "scheduler": params.get("scheduler", "Karras"),
-        "cfg_scale": params.get("cfg_scale", 7.0),
-        "denoising_strength": params.get("denoising_strength", 0.55),
+        "cfg_scale": FINAL_CFG_SCALE,
+        "denoising_strength": FINAL_DENOISING,
         "resize_mode": 1
     }
     response = requests.post(API_URL, json=payload)
@@ -100,7 +108,12 @@ def save_base64_image(b64_str, output_path):
 
 
 def process_images():
-    for root, _, files in os.walk(SOURCE_FOLDER):
+    for root, dirs, files in os.walk(SOURCE_FOLDER):
+        if "ignore" in files:
+            print(f"Skipping folder (ignored): {root}")
+            dirs.clear()
+            continue
+
         for file in files:
             if file.lower().endswith(".png"):
                 image_path = os.path.join(root, file)
@@ -112,25 +125,30 @@ def process_images():
                 with open(json_path, "r", encoding="utf-8") as f:
                     params = json.load(f)
 
+                relative_path = os.path.relpath(image_path, SOURCE_FOLDER)
+
                 for scheme_name, colors in COLOR_SCHEMES.items():
                     palette_rgb = [hex_to_rgb(c) for c in colors]
-                    recolored_path = os.path.join(RECOLORED_FOLDER, scheme_name, os.path.relpath(image_path, SOURCE_FOLDER))
+
+                    # Prepare paths
+                    recolored_path = os.path.join(RECOLORED_FOLDER, scheme_name, relative_path)
                     os.makedirs(os.path.dirname(recolored_path), exist_ok=True)
 
                     recolor_image(image_path, recolored_path, palette_rgb)
 
                     image_b64 = image_to_base64(recolored_path)
                     prompt = build_prompt(json_path, scheme_name, colors)
-                    print(f"\nGenerating for {file} with scheme {scheme_name}...")
+                    print(f"\nGenerating for {relative_path} with scheme {scheme_name}...")
 
                     image_result_b64 = generate_img2img(image_b64, prompt, params)
 
                     if image_result_b64:
-                        output_path = os.path.join(OUTPUT_FOLDER, scheme_name, file)
+                        output_path = os.path.join(OUTPUT_FOLDER, scheme_name, relative_path)
                         save_base64_image(image_result_b64, output_path)
                         print(f"Saved to {output_path}")
                     else:
-                        print(f"Failed to generate image for {file} with scheme {scheme_name}.")
+                        print(f"Failed to generate image for {relative_path} with scheme {scheme_name}.")
+
 
 
 if __name__ == "__main__":

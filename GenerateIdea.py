@@ -88,10 +88,9 @@ def main():
         print(f"Target directory '{target_directory}' does not exist.")
         return
 
-    for root, _, files in os.walk(target_directory):
+    for root, dirs, files in os.walk(target_directory):
         if "ignore" in files:
             print(f"Skipping folder (ignored): {root}")
-            # Don't descend into subfolders of this ignored directory
             dirs.clear()
             continue
         for file in files:
