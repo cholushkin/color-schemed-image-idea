@@ -1,21 +1,3 @@
-- prefix describes overall style 
-- body describes details of the picture
-- suffix describes details of the style
-- for img2img prefix and suffix are ignored
-- prompt for img2img is the body only from idea image. If there is prompt-img2img presented then take this prompt as override for img2img generation
-- PrepareImages.py will generate img only if there is no output image in Images folder (so it just will regenerate absent pictures). User can always delete bad images and the script will regenerate only absent
-- GenerateIdea.py will create low resoultion draft which inlude composition and style
-- PrepareImages.py will create final ready to use image with specified color palette and final details and resolution
-
-
-Working pipeline
-- user prepare json in ImgIdeas folder and run GenerateIdea.py to generate draft for the idea. If draft is not good enough user can delete the image and regenerate
-- user run PrepareImages.py to generate final images based on draft ideas and specified color schemes
-
-
-
-
-
 # 🎨 Color-Schemed Image Generator
 
 A two-stage image generation system using Stable Diffusion for producing stylized, color-controlled artworks from idea prompts.
