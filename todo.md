@@ -1,0 +1,2 @@
+- [ ] better documentation with example
+- [ ] color schemes in ColorSchemes.json

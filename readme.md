@@ -75,6 +75,7 @@ Each JSON file should contain:
   "cfg_scale": 7.0,
   "denoising_strength": 0.65
 }
+```
 
 - `prompt` is used for txt2img generation.
 - `prompt-img2img` (optional) overrides prompt in img2img.
