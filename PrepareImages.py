@@ -16,7 +16,6 @@ OUTPUT_FOLDER = "Images"
 
 USE_DIRECT_PALETTE_MAPPING = True  # Set to True to skip KMeans and map every pixel directly to palette
 
-
 FINAL_WIDTH = 1024
 FINAL_HEIGHT = 1024
 FINAL_STEPS = 28
@@ -27,8 +26,7 @@ COLOR_SCHEMES = {
     "CrimsonTwilight": ['#C56D70', '#241B28', '#566B7B', '#4DB5BF', '#76353F', '#324557', '#EFDBC2', '#4B92A5', '#BFB5BF', '#5C6464']
 }
 
-
-NUM_REDUCED_COLORS = 10  # KMeans cluster count
+NUM_REDUCED_COLORS = 10
 # ==========================
 
 
@@ -47,12 +45,10 @@ def recolor_image(input_path, output_path, palette_rgb):
     tree = KDTree(palette_rgb)
 
     if USE_DIRECT_PALETTE_MAPPING:
-        # === OPTION 1: Direct palette quantization ===
         _, indices = tree.query(pixels, k=1)
         mapped = np.array([palette_rgb[i[0]] for i in indices])
         recolored_rgb = mapped.reshape(rgb.shape)
     else:
-        # === Original: KMeans + palette mapping ===
         kmeans = KMeans(n_clusters=NUM_REDUCED_COLORS, random_state=42, n_init='auto')
         labels = kmeans.fit_predict(pixels)
         reduced_pixels = kmeans.cluster_centers_.astype(np.uint8)[labels]
@@ -66,7 +62,6 @@ def recolor_image(input_path, output_path, palette_rgb):
     Image.fromarray(output, mode="RGBA").save(output_path)
 
 
-
 def image_to_base64(image_path):
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode('utf-8')
@@ -78,23 +73,24 @@ def find_json_for_image(image_path):
     return json_path if os.path.exists(json_path) else None
 
 
-def build_prompt(json_path, scheme_name, colors):
+def build_prompt(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    base_prompt = data.get("prompt", "")
-    palette_prompt = "color scheme: " + ", ".join(colors)
-    return f"{base_prompt}, {palette_prompt}"
+
+    # Use override if present
+    if "prompt-img2img" in data:
+        return data["prompt-img2img"]
+    return data.get("prompt", "")
 
 
 def generate_img2img(image_b64, prompt, params):
-    # Reuse some parameters from idea json
     payload = {
         "init_images": [image_b64],
         "prompt": prompt,
         "negative_prompt": params.get("negative_prompt", ""),
         "width": FINAL_WIDTH,
         "height": FINAL_HEIGHT,
-        "steps": FINAL_STEPS, 
+        "steps": FINAL_STEPS,
         "seed": params.get("seed", -1),
         "sampler_name": params.get("sampler_name", "Euler a"),
         "scheduler": params.get("scheduler", "Karras"),
@@ -137,27 +133,27 @@ def process_images():
                 relative_path = os.path.relpath(image_path, SOURCE_FOLDER)
 
                 for scheme_name, colors in COLOR_SCHEMES.items():
-                    palette_rgb = [hex_to_rgb(c) for c in colors]
+                    output_path = os.path.join(OUTPUT_FOLDER, scheme_name, relative_path)
+                    if os.path.exists(output_path):
+                        print(f"Skipping existing image: {output_path}")
+                        continue
 
-                    # Prepare paths
+                    palette_rgb = [hex_to_rgb(c) for c in colors]
                     recolored_path = os.path.join(RECOLORED_FOLDER, scheme_name, relative_path)
                     os.makedirs(os.path.dirname(recolored_path), exist_ok=True)
 
                     recolor_image(image_path, recolored_path, palette_rgb)
-
                     image_b64 = image_to_base64(recolored_path)
-                    prompt = build_prompt(json_path, scheme_name, colors)
+                    prompt = build_prompt(json_path)
+
                     print(f"\nGenerating for {relative_path} with scheme {scheme_name}...")
 
                     image_result_b64 = generate_img2img(image_b64, prompt, params)
-
                     if image_result_b64:
-                        output_path = os.path.join(OUTPUT_FOLDER, scheme_name, relative_path)
                         save_base64_image(image_result_b64, output_path)
                         print(f"Saved to {output_path}")
                     else:
                         print(f"Failed to generate image for {relative_path} with scheme {scheme_name}.")
-
 
 
 if __name__ == "__main__":
