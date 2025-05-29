@@ -14,6 +14,7 @@ API_URL = "http://127.0.0.1:7860/sdapi/v1/img2img"
 SOURCE_FOLDER = "ImgIdeas"
 RECOLORED_FOLDER = "RecoloredTemp"
 OUTPUT_FOLDER = "Images"
+LORA_BICHU = True
 
 USE_DIRECT_PALETTE_MAPPING = False  # Set to True to skip KMeans and map every pixel directly to palette (has slight dithering effect)
 BLUR_RECOLORED_IMAGE = True  # Set to True to apply blur before img2img
@@ -144,6 +145,32 @@ def save_base64_image(b64_str, output_path):
     image.save(output_path)
 
 
+def generate_img2img_bichu(image_b64, prompt, params):
+    bichu_prompt = "<lora:bichu-v0612>, " + prompt
+    payload = {
+        "init_images": [image_b64],
+        "prompt": bichu_prompt,
+        "negative_prompt": params.get("negative_prompt", ""),
+        "width": FINAL_WIDTH,
+        "height": FINAL_HEIGHT,
+        "steps": 42,
+        "seed": params.get("seed", -1),
+        "sampler_name": params.get("sampler_name", "Euler a"),
+        "scheduler": params.get("scheduler", "Karras"),
+        "cfg_scale": FINAL_CFG_SCALE,
+        "denoising_strength": 0.65,
+        "resize_mode": 1,
+        "override_settings": {
+            "sd_model_checkpoint": "dreamshaper_8.safetensors [879db523c3]"
+        }
+    }
+    response = requests.post(API_URL, json=payload)
+    if response.status_code != 200:
+        print(f"Failed Bichu generation: {response.status_code} - {response.text}")
+        return None
+    return response.json().get("images", [None])[0]
+
+
 def process_images():
     for root, dirs, files in os.walk(SOURCE_FOLDER):
         if "ignore" in files:
@@ -166,30 +193,41 @@ def process_images():
 
                 for scheme_name, colors in COLOR_SCHEMES.items():
                     output_path = os.path.join(OUTPUT_FOLDER, scheme_name, relative_path)
-                    if os.path.exists(output_path):
-                        print(f"Skipping existing image: {output_path}")
-                        continue
+                    bichu_output_path = output_path.replace(".png", "_bichu.png")
 
                     palette_rgb = [hex_to_rgb(c) for c in colors]
                     recolored_path = os.path.join(RECOLORED_FOLDER, scheme_name, relative_path)
                     os.makedirs(os.path.dirname(recolored_path), exist_ok=True)
 
-                    recolor_image(image_path, recolored_path, palette_rgb)
-                    
-                    if BLUR_RECOLORED_IMAGE:
-                        blur_image_in_place(recolored_path, BLUR_RADIUS)
-                        
-                    image_b64 = image_to_base64(recolored_path)
-                    prompt = build_prompt(json_path)
+                    # Generate main image if missing
+                    if not os.path.exists(output_path):
+                        recolor_image(image_path, recolored_path, palette_rgb)
+                        if BLUR_RECOLORED_IMAGE:
+                            blur_image_in_place(recolored_path, BLUR_RADIUS)
+                        image_b64 = image_to_base64(recolored_path)
+                        prompt = build_prompt(json_path)
 
-                    print(f"\nGenerating for {relative_path} with scheme {scheme_name}...")
+                        print(f"\nGenerating for {relative_path} with scheme {scheme_name}...")
+                        image_result_b64 = generate_img2img(image_b64, prompt, params)
+                        if image_result_b64:
+                            save_base64_image(image_result_b64, output_path)
+                            print(f"Saved to {output_path}")
+                        else:
+                            print(f"Failed to generate image for {relative_path} with scheme {scheme_name}")
+                            continue  # skip Bichu if main image generation failed
 
-                    image_result_b64 = generate_img2img(image_b64, prompt, params)
-                    if image_result_b64:
-                        save_base64_image(image_result_b64, output_path)
-                        print(f"Saved to {output_path}")
-                    else:
-                        print(f"Failed to generate image for {relative_path} with scheme {scheme_name}.")
+                    # Generate bichu image if requested and missing
+                    if LORA_BICHU and not os.path.exists(bichu_output_path):
+                        print(f"Generating Bichu variant for {relative_path}...")
+                        base64_for_bichu = image_to_base64(output_path)
+                        prompt = build_prompt(json_path)
+                        bichu_result_b64 = generate_img2img_bichu(base64_for_bichu, prompt, params)
+                        if bichu_result_b64:
+                            save_base64_image(bichu_result_b64, bichu_output_path)
+                            print(f"Saved Bichu image to {bichu_output_path}")
+                        else:
+                            print(f"Failed Bichu generation for {relative_path}")
+
 
 
 if __name__ == "__main__":
